@@ -210,3 +210,9 @@ __marimo__/
 /videos/*.mp4
 /videos/*.mov
 /videos/*.avi
+
+# imgs folder
+imgs
+
+# Ignore folder
+ignore
