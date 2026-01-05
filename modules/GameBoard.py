@@ -8,8 +8,6 @@ class GameBoard(TrackedObject):
         super().__init__(obj_id, max_lost)
         self.target_size = target_size
         
-        # --- МАССИВ ДЛЯ ХРАНЕНИЯ КРУГОВ ---
-        # Здесь будут лежать объекты класса Circle
         self.circles = [] 
         self.next_circle_id = 0
         self.relative_zones = [
@@ -33,7 +31,6 @@ class GameBoard(TrackedObject):
         
         pts = self.last_data.reshape(4, 2).astype("float32")
         
-        # Упорядочиваем углы: TL, TR, BR, BL
         rect = np.zeros((4, 2), dtype="float32")
         s = pts.sum(axis=1)
         rect[0], rect[2] = pts[np.argmin(s)], pts[np.argmax(s)]
@@ -49,25 +46,17 @@ class GameBoard(TrackedObject):
         return cv2.warpPerspective(frame, M, (self.target_size, self.target_size))
 
     def update_circles(self, raw_detections):
-        """
-        Принимает список (x, y, r) от HoughCircles и обновляет массив self.circles
-        """
         if not raw_detections:
-            # Если ничего не нашли, помечаем все текущие круги как потерянные
             for circle in self.circles:
                 circle.update(None)
         else:
-            # Логика сопоставления (Matching):
-            # Пытаемся найти для каждого старого круга ближайший новый
             used_detections = [False] * len(raw_detections)
             
             for circle in self.circles:
-                # Если круг уже потерян давно, пропускаем
                 if not circle.is_visible: continue
 
                 best_idx = -1
-                min_dist = 50 # Максимальная дистанция сдвига (пиксели)
-
+                min_dist = 50 
                 cx, cy, _ = circle.last_data
                 
                 for i, (nx, ny, nr) in enumerate(raw_detections):
@@ -82,24 +71,19 @@ class GameBoard(TrackedObject):
                     circle.update(raw_detections[best_idx])
                     used_detections[best_idx] = True
                 else:
-                    circle.update(None) # Не нашли пару -> потерян
-            
-            # Создаем новые круги для оставшихся детекций
+                    circle.update(None)
             for i, (nx, ny, nr) in enumerate(raw_detections):
                 if not used_detections[i]:
                     new_circle = Circle(self.next_circle_id, pos=(nx, ny), radius=nr)
                     self.circles.append(new_circle)
                     self.next_circle_id += 1
 
-        # Очистка мусора: удаляем круги, которые потеряны слишком давно
         self.circles = [c for c in self.circles if c.lost_frames < c.max_lost]
 
     def draw_circles(self, image):
-        """Рисует все активные круги из массива на переданном изображении"""
         for circle in self.circles:
             if circle.is_visible:
                 circle.draw(image)
         
-        # Выводим общее количество
         cv2.putText(image, f"Count: {len([c for c in self.circles if c.is_visible])}", 
                    (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
