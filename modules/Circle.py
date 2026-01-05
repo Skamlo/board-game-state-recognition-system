@@ -19,6 +19,10 @@ class Circle(TrackedObject):
         cv2.circle(frame, (x, y), r, draw_color, 2)
         cv2.circle(frame, (x, y), 2, (0, 0, 255), -1)
         
+        if self.name:
+            cv2.putText(frame, self.name.upper(), (x - 20, y - 35), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+        
         cv2.putText(frame, f"ID:{self.id}", (x - 10, y - r - 5), 
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, draw_color, 1)
         

@@ -8,6 +8,8 @@ class TrackedObject:
         self.max_lost = max_lost
         self.is_visible = False
         self.last_data = None
+        self.name = None
+        self.frames_since_recognition = 0
 
     def update(self, detected_data):
         if detected_data is not None:
