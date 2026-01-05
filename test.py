@@ -3,25 +3,18 @@ import numpy as np
 import math
 import time
 
-# Импорты ваших модулей
 from modules.circle_detection import find_circles_hough
 from modules.GameBoard import GameBoard
 from modules.TokenClassifier import TokenClassifier
-
-# --- КОНФИГУРАЦИЯ ---
 MIN_SIDE_LENGTH = 600
 MAX_SIDE_LENGTH = 800
 TARGET_WARPED_SIZE = 600
 
-# --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
-
 def create_montage(images, size=(100, 100), cols=5):
-    """Склеивает список изображений в одну сетку"""
     if not images: return np.zeros((100, 100, 3), dtype='uint8')
     
     resized = []
     for img in images:
-        # Если картинка серая (1 канал), делаем BGR (3 канала) для совместимости
         if len(img.shape) == 2:
             img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
         resized.append(cv2.resize(img, size))
@@ -30,7 +23,6 @@ def create_montage(images, size=(100, 100), cols=5):
     montage_h = rows * size[1]
     montage_w = cols * size[0]
     
-    # Если картинок мало, ширина может быть меньше полной
     if rows == 1: montage_w = len(resized) * size[0]
         
     montage = np.zeros((montage_h, montage_w, 3), dtype='uint8')
@@ -65,7 +57,6 @@ def create_resizable_window(name, width, height):
     cv2.namedWindow(name, cv2.WINDOW_NORMAL)
     cv2.resizeWindow(name, width, height)
 
-# --- ИНИЦИАЛИЗАЦИЯ ---
 
 create_resizable_window("Main Stream", 1000, 700)
 
