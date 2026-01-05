@@ -1,7 +1,4 @@
-import cv2
-import numpy as np
-
-class TrackedObject:
+class Object:
     def __init__(self, obj_id, max_lost=50):
         self.id = obj_id
         self.lost_frames = 0

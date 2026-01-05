@@ -1,9 +1,9 @@
 import cv2
 import numpy as np
-from modules.Object import TrackedObject
-from modules.Circle import Circle
+from modules.object_detection.objects import Object
 
-class GameBoard(TrackedObject):
+
+class GameBoard(Object):
     def __init__(self, obj_id, target_size=600, max_lost=50):
         super().__init__(obj_id, max_lost)
         self.target_size = target_size

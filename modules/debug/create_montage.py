@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 import math
 
+
 def create_montage(images, size=(100, 100), cols=5):
     """
     this function was created for debbuging, shows masks of chips to be predicted 

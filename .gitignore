@@ -211,5 +211,9 @@ __marimo__/
 /videos/*.mov
 /videos/*.avi
 
+# Data folder
+data/*
+!data/.gitkeep
 
-/data
+# Ignore folder
+ignore

@@ -4,9 +4,9 @@ import math
 import time
 
 # Импорты ваших модулей
-from modules.circle_detection import find_circles_hough
-from modules.GameBoard import GameBoard
-from modules.TokenClassifier import TokenClassifier
+from modules.object_detection.circle_detection import find_circles_hough
+from modules.object_detection.objects.GameBoard import GameBoard
+from modules.object_detection.TokenClassifier import TokenClassifier
 
 # --- КОНФИГУРАЦИЯ ---
 MIN_SIDE_LENGTH = 600
