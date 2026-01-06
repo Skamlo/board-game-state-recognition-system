@@ -42,6 +42,7 @@ class TokenClassifier:
 
     def predict(self, image_roi, mask=None):
         
+        if image_roi is None or image_roi.size == 0: return None
         if len(image_roi.shape) == 3:
             gray = cv2.cvtColor(image_roi, cv2.COLOR_BGR2GRAY)
         else:
@@ -53,13 +54,11 @@ class TokenClassifier:
             cv2.circle(mask, (w // 2, h // 2), min(w, h) // 2, 255, -1)
 
         kp, des = self.orb.detectAndCompute(gray, mask=mask)
-        
-        if des is None or len(des) < 5:
+        if des is None or len(des) < 10: 
             return None 
 
         best_match_name = None
         max_good_matches = 0
-        
         for name, data in self.references.items():
             ref_des = data['des']
             if ref_des is None: continue
@@ -71,10 +70,11 @@ class TokenClassifier:
                 if m.distance < 0.85 * n.distance:
                     good.append(m)
             
-            max_good_matches = len(good)
-            best_match_name = name
+            if len(good) > max_good_matches:
+                max_good_matches = len(good)
+                best_match_name = name
 
-        if max_good_matches > 4: 
+        if max_good_matches > 8: 
             return best_match_name
         
         return "Unknown"
