@@ -1,47 +1,20 @@
 import cv2
 import numpy as np
-import math
 import time
-
-# Импорты ваших модулей
-from modules.object_detection.circle_detection import find_circles_hough
-from modules.object_detection.objects.GameBoard import GameBoard
+from modules.object_detection.find_circles_hough import find_circles_hough
+from modules.object_detection.objects import Board
 from modules.object_detection.TokenClassifier import TokenClassifier
+from modules.video import VideoReadManager, draw_board, draw_circle, draw_circles
+from modules.game_engine import BoardLogic
 
-# --- КОНФИГУРАЦИЯ ---
+# --- CONFIGURATION ---
 MIN_SIDE_LENGTH = 600
 MAX_SIDE_LENGTH = 800
 TARGET_WARPED_SIZE = 600
+VIDEO_PATH = "./data/clips/easy2.mp4"
 
-# --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
-
-def create_montage(images, size=(100, 100), cols=5):
-    """Склеивает список изображений в одну сетку"""
-    if not images: return np.zeros((100, 100, 3), dtype='uint8')
-    
-    resized = []
-    for img in images:
-        # Если картинка серая (1 канал), делаем BGR (3 канала) для совместимости
-        if len(img.shape) == 2:
-            img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
-        resized.append(cv2.resize(img, size))
-    
-    rows = math.ceil(len(resized) / cols)
-    montage_h = rows * size[1]
-    montage_w = cols * size[0]
-    
-    # Если картинок мало, ширина может быть меньше полной
-    if rows == 1: montage_w = len(resized) * size[0]
-        
-    montage = np.zeros((montage_h, montage_w, 3), dtype='uint8')
-    
-    for i, img in enumerate(resized):
-        r, c = i // cols, i % cols
-        y1, y2 = r * size[1], (r + 1) * size[1]
-        x1, x2 = c * size[0], (c + 1) * size[0]
-        montage[y1:y2, x1:x2] = img
-        
-    return montage
+# --- AUXILIARY FUNCTIONS ---
+from modules.debug import create_montage
 
 def find_boards_geometry_hardcoded(frame):
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -65,100 +38,84 @@ def create_resizable_window(name, width, height):
     cv2.namedWindow(name, cv2.WINDOW_NORMAL)
     cv2.resizeWindow(name, width, height)
 
-# --- ИНИЦИАЛИЗАЦИЯ ---
-
+# --- INITIALIZATION ---
 create_resizable_window("Main Stream", 1000, 700)
-
-cap = cv2.VideoCapture("./data/clips/medium.mp4")
-
-tracked_boards = [] 
+tracked_boards = []
 board_id_counter = 0
 circle_classifier = TokenClassifier("./data/elements/circles")
-
 ref_imgs = circle_classifier.get_masked_references_images()
-if 1:
-    montage_refs = create_montage(ref_imgs, size=(120, 120), cols=5)
-    cv2.imshow("REFERENCES (MASKED)", montage_refs)
-    cv2.waitKey(1) 
 
+montage_refs = create_montage(ref_imgs, size=(120, 120), cols=5)
+cv2.imshow("REFERENCES (MASKED)", montage_refs)
+cv2.waitKey(1)
+
+# --- MAIN LOOP ---
 last_debug_time = 0
-DEBUG_INTERVAL = 0.5 
-while True:
-    ret, frame = cap.read()
-    if not ret: break
+DEBUG_INTERVAL = 0.5
 
-    candidates = find_boards_geometry_hardcoded(frame)
-    for cand in candidates:
-        matched = False
-        cand_center = np.mean(cand.reshape(4, 2), axis=0)
+with VideoReadManager(VIDEO_PATH) as reader:
+    for frame in reader.read():
+        candidates = find_boards_geometry_hardcoded(frame)
+
+        # 1. Update Board Tracking
+        for cand in candidates:
+            matched = False
+            cand_center = np.mean(cand.reshape(4, 2), axis=0)
+            
+            for board in tracked_boards:
+                if board.last_data is not None:
+                    curr_center = np.mean(board.last_data.reshape(4, 2), axis=0)
+                    if np.linalg.norm(cand_center - curr_center) < 100:
+                        board.update(cand)
+                        matched = True
+                        break
+            
+            if not matched:
+                new_board = Board(board_id_counter, target_size=TARGET_WARPED_SIZE)
+                new_board.update(cand)
+                new_board.logic = BoardLogic(target_size=TARGET_WARPED_SIZE)
+                tracked_boards.append(new_board)
+                board_id_counter += 1
         
+        all_orb_inputs = []
+
+        # 2. Render Visualizations
         for board in tracked_boards:
-            if board.last_data is not None:
-                curr_center = np.mean(board.last_data.reshape(4, 2), axis=0)
-                if np.linalg.norm(cand_center - curr_center) < 100:
-                    board.update(cand)
-                    matched = True
-                    break
-        
-        if not matched:
-            new_board = GameBoard(board_id_counter, target_size=TARGET_WARPED_SIZE)
-            new_board.update(cand)
-            tracked_boards.append(new_board)
-            board_id_counter += 1
-    all_orb_inputs = []
+            if not board.is_visible:
+                continue
+            
+            # Visualizing a board
+            draw_board(frame, board, color=(0, 255, 0))
 
-    for board in tracked_boards:
-        if board.lost_frames > 20: continue
-        
-        if board.last_data is not None:
-             cv2.drawContours(frame, [board.last_data], -1, (0, 255, 0), 3)
-
-        warped = board.get_warped(frame)
-        if warped is not None:    
-        
+            warped = board.get_warped(frame)
+            if warped is None:
+                continue
+            
+            # Detect circles on warped board
             detection_results = find_circles_hough(warped)
-            board.update_circles(detection_results)
-            board.draw_circles(warped)
-            cv2.imshow(f"Board {board.id}", warped)
-            for circle in board.circles:
-                if not circle.is_visible: continue
-                circle.frames_since_recognition += 1
-                if circle.name is None or circle.frames_since_recognition > 30:
+            board.logic.update_circles(detection_results)
+            
+            # VISUALIZATION: Draw detailed info for each circle on the warped board
+            for circle in board.logic.circles:
+                if circle.is_visible:
+                    # This uses your draw_circle.py which draws ID, Name, and Coords
+                    draw_circle(warped, circle)
                     
-                    if hasattr(circle, 'last_roi') and circle.last_roi is not None:
-                        prediction = circle_classifier.predict(circle.last_roi, mask=circle.last_mask)
-                        
-                        if prediction and prediction != "Unknown":
-                            circle.name = prediction
+                    # Classification Logic
+                    circle.frames_since_recognition += 1
+                    if circle.name is None or circle.frames_since_recognition > 30:
+                        if hasattr(circle, 'last_roi') and circle.last_roi is not None:
+                            pred = circle_classifier.predict(circle.last_roi, mask=circle.last_mask)
+                            circle.name = pred if pred else "Unknown"
                             circle.frames_since_recognition = 0
-                        elif prediction == "Unknown":
-                            circle.name = "Unknown" 
-                        elif circle.name is None:
-                            circle.name = "None"
-                
-                if hasattr(circle, 'last_roi') and circle.last_roi is not None:
-                    roi = circle.last_roi
-                    mask = circle.last_mask
-                    if len(roi.shape) == 3:
-                        gray_input = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-                    else:
-                        gray_input = roi.copy()
-                    masked_debug = cv2.bitwise_and(gray_input, gray_input, mask=mask)
-                    kp = circle_classifier.orb.detect(gray_input, mask=mask)
-                    debug_view = cv2.drawKeypoints(masked_debug, kp, None, color=(0, 255, 0), flags=0)
-                    label = circle.name if circle.name else "?"
-                    cv2.putText(debug_view, f"{circle.id}:{label}", (5, 15), 
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
-                    
-                    all_orb_inputs.append(debug_view)
-    if time.time() - last_debug_time > DEBUG_INTERVAL:
-        if all_orb_inputs:
-            montage_debug = create_montage(all_orb_inputs, size=(100, 100), cols=6)
-            cv2.imshow("DEBUG: ORB Inputs + Keypoints", montage_debug)
-        last_debug_time = time.time()
 
-    cv2.imshow("Main Stream", frame)
-    if cv2.waitKey(1) == ord('q'): break
+            # Show the top-down view with circles
+            cv2.imshow(f"Board {board.id}", warped)
 
-cap.release()
+        # Final display of the main camera stream
+        cv2.imshow("Main Stream", frame)
+        
+        if cv2.waitKey(1) == ord('q'): 
+            break
+
 cv2.destroyAllWindows()

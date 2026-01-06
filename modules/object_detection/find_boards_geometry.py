@@ -1,8 +1,8 @@
 import cv2
-import numpy as np
 
 MIN_SIDE_LENGTH = 600
 MAX_SIDE_LENGTH = 800
+
 
 def find_boards_geometry(frame):
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)

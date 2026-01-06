@@ -2,6 +2,7 @@ import cv2
 import os
 import numpy as np
 
+
 class TokenClassifier:
     def __init__(self, references_path):
         self.orb = cv2.SIFT_create()  #cv2.ORB_create(nfeatures=500)

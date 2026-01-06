@@ -1,9 +1,9 @@
 from modules.object_detection.objects.Object import Object
 from modules.object_detection.objects.Circle import Circle
-from modules.object_detection.objects.GameBoard import GameBoard
+from modules.object_detection.objects.Board import Board
 
 __all__ = [
     "Object",
     "Circle",
-    "GameBoard"
+    "Board"
 ]

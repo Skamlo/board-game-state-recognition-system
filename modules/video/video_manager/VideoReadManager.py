@@ -33,9 +33,9 @@ class VideoReadManager(VideoManagerInterface):
                     break
 
                 if self.color_system == "RGB":
-                    yield frame[:, :, ::-1]
-                elif self.color_system == "BGR":
                     yield frame
+                elif self.color_system == "BGR":
+                    yield frame[:, :, ::-1]
         finally:
             self.close_connection()
 
