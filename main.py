@@ -12,6 +12,7 @@ MIN_SIDE_LENGTH = 600
 MAX_SIDE_LENGTH = 800
 TARGET_WARPED_SIZE = 600
 VIDEO_PATH = "./data/clips/easy2.mp4"
+ELEMENTS_PATH = "./data/elements/circles"
 
 # --- AUXILIARY FUNCTIONS ---
 from modules.debug import create_montage
@@ -39,10 +40,10 @@ def create_resizable_window(name, width, height):
     cv2.resizeWindow(name, width, height)
 
 # --- INITIALIZATION ---
+circle_classifier = TokenClassifier(ELEMENTS_PATH)
 create_resizable_window("Main Stream", 1000, 700)
 tracked_boards = []
 board_id_counter = 0
-circle_classifier = TokenClassifier("./data/elements/circles")
 ref_imgs = circle_classifier.get_masked_references_images()
 
 montage_refs = create_montage(ref_imgs, size=(120, 120), cols=5)
@@ -95,10 +96,8 @@ with VideoReadManager(VIDEO_PATH) as reader:
             detection_results = find_circles_hough(warped)
             board.logic.update_circles(detection_results)
             
-            # VISUALIZATION: Draw detailed info for each circle on the warped board
             for circle in board.logic.circles:
                 if circle.is_visible:
-                    # This uses your draw_circle.py which draws ID, Name, and Coords
                     draw_circle(warped, circle)
                     
                     # Classification Logic
@@ -110,7 +109,7 @@ with VideoReadManager(VIDEO_PATH) as reader:
                             circle.frames_since_recognition = 0
 
             # Show the top-down view with circles
-            cv2.imshow(f"Board {board.id}", warped)
+            cv2.imshow(f"Board {board.id+1}", warped)
 
         # Final display of the main camera stream
         cv2.imshow("Main Stream", frame)
