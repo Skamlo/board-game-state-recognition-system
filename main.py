@@ -1,6 +1,5 @@
 import cv2
 import numpy as np
-import time
 
 # --- MODULE IMPORTS ---
 from modules.object_detection.find_circles_hough import find_circles_hough
@@ -30,8 +29,6 @@ circle_classifier = TokenClassifier(ELEMENTS_PATH)
 dice_classifier = TokenClassifier(DICE_SAMPLES_PATH)
 
 # 2. Windows & Visuals
-create_resizable_window("Main Stream", 1000, 700)
-
 ref_imgs_circles = circle_classifier.get_masked_references_images()
 montage_circles = create_montage(ref_imgs_circles, size=(120, 120), cols=5)
 cv2.imshow("REFERENCES (Circles)", montage_circles)
@@ -53,7 +50,7 @@ dice_id_counter = 0
 # --- MAIN LOOP ---
 with VideoReadManager(VIDEO_PATH) as reader:
     for frame in reader.read():
-        
+
         # BOARD DETECTION & LOGIC
         board_candidates = find_boards_geometry(frame)
 
@@ -104,10 +101,30 @@ with VideoReadManager(VIDEO_PATH) as reader:
             cv2.imshow(f"Board {board.id+1}", warped)
 
         # DICE DETECTION & LOGIC
-        # 1. Detect dice in current frame
-        dice_candidates_objects = find_dices_geometry(frame, dice_classifier)
+        # Detect dice candidates in current frame
+        raw_dice_candidates = find_dices_geometry(frame, dice_classifier)
         
-        # 2. Match candidates to existing tracked dice (Tracking Logic)
+        # Filter candidates: Remove dice that overlap with active Boards
+        dice_candidates_objects = []
+        
+        for dice_cand in raw_dice_candidates:
+            is_overlapping_board = False
+            
+            if dice_cand.center is not None:
+                for board in tracked_boards:
+                    # Check overlap only if board is visible and has a contour
+                    if board.is_visible and board.last_data is not None:
+                        # pointPolygonTest returns >= 0 if point is inside or on edge
+                        # board.last_data is the contour of the board
+                        if cv2.pointPolygonTest(board.last_data, dice_cand.center, False) >= 0:
+                            is_overlapping_board = True
+                            break
+            
+            # If it's NOT on a board, we keep it as a valid dice candidate
+            if not is_overlapping_board:
+                dice_candidates_objects.append(dice_cand)
+
+        # Update existing Tracked Dices (Tracking Logic)
         for d in tracked_dices:
             d.update(None)
 
@@ -141,10 +158,10 @@ with VideoReadManager(VIDEO_PATH) as reader:
                 tracked_dices.append(new_dice_obj)
                 dice_id_counter += 1
 
-        # 3. Clean up list (remove dice lost for too long)
+        # Clean up list (remove dice lost for too long)
         tracked_dices = [d for d in tracked_dices if d.lost_frames < d.max_lost]
 
-        # 4. Draw Dices
+        # Draw Dices
         visible_dices = [d for d in tracked_dices if d.is_visible]
         draw_dices(frame, visible_dices)
 

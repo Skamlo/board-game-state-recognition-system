@@ -19,7 +19,7 @@ def draw_dices(frame: np.array, dices: List[Dice], color: Tuple[int] = (0, 255, 
         # Draw the contour
         cv2.drawContours(frame, [dice.contour], -1, color, 3)
 
-        text = f"{dice.color} {dice.label.split("_")[0]}"
+        text = f"{dice.label}"
         font = cv2.FONT_HERSHEY_SIMPLEX
         font_scale = 0.5
         thickness = 1

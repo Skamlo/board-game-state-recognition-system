@@ -3,8 +3,8 @@ import numpy as np
 from modules.object_detection.TokenClassifier import TokenClassifier
 from modules.object_detection.objects import Dice
 
-ORANGE_RANGE = (np.array([31, 98, 68]), np.array([11, 94, 19]))
-BLUE_RANGE = (np.array([186, 93, 84]), np.array([200, 54, 15]))
+ORANGE_RANGE = (np.array([0, 0, 0]), np.array([35, 255, 255]))
+BLUE_RANGE = (np.array([180, 0, 0]), np.array([360, 255, 255]))
 
 
 def find_dices_geometry(frame, classifier: TokenClassifier):
@@ -54,32 +54,16 @@ def find_dices_geometry(frame, classifier: TokenClassifier):
         y1, y2 = max(0, y-margin), min(frame.shape[0], y+h+margin)
         x1, x2 = max(0, x-margin), min(frame.shape[1], x+w+margin)
         roi = frame[y1:y2, x1:x2]
-        roi_hsv = hsv_frame[y1:y2, x1:x2]
-        
-        if roi.size == 0: continue
-
-        # Classify Color
-        o_mask = cv2.inRange(roi_hsv, ORANGE_RANGE[0], ORANGE_RANGE[1])
-        b_mask = cv2.inRange(roi_hsv, BLUE_RANGE[0], BLUE_RANGE[1])
-        
-        o_score = cv2.countNonZero(o_mask)
-        b_score = cv2.countNonZero(b_mask)
-        
-        color_res = "Unknown"
-        if o_score > b_score and o_score > 50:
-            color_res = "Orange"
-        elif b_score > o_score and b_score > 50:
-            color_res = "Blue"
 
         # Classify Label (SIFT)
         label_res = classifier.predict(roi)
-        if label_res is None: label_res = "Unknown"
+        if label_res is None:
+            label_res = "Unknown"
 
         # Instantiate Dice Object
         new_dice = Dice(
             obj_id=i, 
             box=(x, y, w, h), 
-            color=color_res, 
             label=label_res, 
             contour=cnt
         )
