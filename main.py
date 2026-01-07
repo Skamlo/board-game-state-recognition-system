@@ -29,14 +29,14 @@ circle_classifier = TokenClassifier(ELEMENTS_PATH)
 dice_classifier = TokenClassifier(DICE_SAMPLES_PATH)
 
 # 2. Windows & Visuals
-ref_imgs_circles = circle_classifier.get_masked_references_images()
-montage_circles = create_montage(ref_imgs_circles, size=(120, 120), cols=5)
-cv2.imshow("REFERENCES (Circles)", montage_circles)
+# ref_imgs_circles = circle_classifier.get_masked_references_images()
+# montage_circles = create_montage(ref_imgs_circles, size=(120, 120), cols=5)
+# cv2.imshow("REFERENCES (Circles)", montage_circles)
 
-ref_imgs_dices = dice_classifier.get_masked_references_images()
-if ref_imgs_dices:
-    montage_dices = create_montage(ref_imgs_dices, size=(120, 120), cols=5)
-    cv2.imshow("REFERENCES (Dices)", montage_dices)
+# ref_imgs_dices = dice_classifier.get_masked_references_images()
+# if ref_imgs_dices:
+#     montage_dices = create_montage(ref_imgs_dices, size=(120, 120), cols=5)
+#     cv2.imshow("REFERENCES (Dices)", montage_dices)
 
 cv2.waitKey(1)
 
@@ -166,6 +166,8 @@ with VideoReadManager(VIDEO_PATH) as reader:
         draw_dices(frame, visible_dices)
 
         # FINAL DISPLAY
+        cv2.namedWindow("Main Stream", cv2.WINDOW_NORMAL)
+        cv2.resizeWindow("Main Stream", 1000, 700)
         cv2.imshow("Main Stream", frame)
         
         if cv2.waitKey(1) == ord('q'): 
