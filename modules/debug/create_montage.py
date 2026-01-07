@@ -30,3 +30,5 @@ def create_montage(images, size=(100, 100), cols=5):
         montage[y1:y2, x1:x2] = img
         
     return montage
+
+

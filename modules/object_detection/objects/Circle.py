@@ -1,5 +1,5 @@
 from modules.object_detection.objects import Object
-
+import numpy as np
 
 class Circle(Object):
     def __init__(self, obj_id, pos=None, radius=None, max_lost=30):
@@ -10,3 +10,6 @@ class Circle(Object):
 
         self.last_roi = None
         self.last_mask = None
+        
+        self.since_not_unknown = 0 
+        self.recently_updated_counter = np.zeros(10)
