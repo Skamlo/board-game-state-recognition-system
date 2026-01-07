@@ -1,20 +1,29 @@
 import cv2
 import numpy as np
 import time
+from collections import deque, Counter
+
 from modules.object_detection.find_circles_hough import find_circles_hough
 from modules.object_detection.objects import Board
 from modules.object_detection.TokenClassifier import TokenClassifier
-from modules.video import VideoReadManager, draw_board, draw_circle, draw_circles
+from modules.video import VideoReadManager, draw_board, draw_circle
 from modules.game_engine import BoardLogic
-from modules.debug.hist_des_debbuging import generate_debug_image 
-from modules.debug import create_montage
+from modules.video.video_manager.VideoWriteManager import VideoWriteManager
 
 # --- CONFIGURATION ---
 MIN_SIDE_LENGTH = 600
 MAX_SIDE_LENGTH = 800
 TARGET_WARPED_SIZE = 600
 VIDEO_PATH = "./data/clips/easy2.mp4"
+OUTPUT_VIDEO_PATH = "./data/output/result_with_scores.mp4"
 ELEMENTS_PATH = "./data/elements/circles"
+
+# --- CONSTANTS ---
+HISTORY_LEN = 20        
+CONFIDENCE_THRESH = 8   
+PERSISTENCE_THRESH = 15 
+PERSISTENCE_FRAMES = 20 
+SKIP_FRAMES = 5
 
 # --- AUXILIARY FUNCTIONS ---
 def find_boards_geometry_hardcoded(frame):
@@ -39,22 +48,88 @@ def create_resizable_window(name, width, height):
     cv2.namedWindow(name, cv2.WINDOW_NORMAL)
     cv2.resizeWindow(name, width, height)
 
-def draw_hist_plot(hist, name, size=(150, 80)):
-    canvas = np.zeros((size[1], size[0], 3), dtype="uint8")
-    if hist is None: return canvas
+# --- ФУНКЦИЯ ОТРИСОВКИ ОЧКОВ ---
+def draw_stats_panel(image, circles):
+    """
+    Принимает изображение доски и список кругов.
+    Считает количество животных и добавляет панель слева.
+    Считает TOTAL в кроликах.
+    """
+    if image is None: return None
     
-    disp_hist = hist.copy()
-    cv2.normalize(disp_hist, disp_hist, alpha=0, beta=size[1], norm_type=cv2.NORM_MINMAX)
+    h, w = image.shape[:2]
+    panel_w = 220 # Немного расширил панель для цифр
     
-    bin_w = max(1, size[0] // len(hist))
+    # 1. Считаем животных
+    # Фильтруем: только видимые (или в памяти) и только валидные имена
+    valid_names = []
+    for c in circles:
+        # Учитываем персистентность или видимость
+        is_active = c.is_visible or (getattr(c, 'persistence_timer', 0) > 0)
+        
+        if is_active and c.name and c.name not in ["free", "Unknown", None]:
+            valid_names.append(c.name)
+            
+    counts = Counter(valid_names)
     
-    for i in range(len(hist)):
-        val = int(disp_hist[i])
-        cv2.rectangle(canvas, (i * bin_w, size[1] - val), 
-                      ((i + 1) * bin_w, size[1]), (0, 255, 0), -1)
+    # --- СТОИМОСТЬ ЖИВОТНЫХ (В КРОЛИКАХ) ---
+    # Rabbit = 1
+    # Sheep = 6
+    # Pig = 12 (2 sheep)
+    # Cow = 36 (3 pigs)
+    # Horse = 72 (2 cows)
+    points_map = {
+        'rabbit': 1,
+        'sheep': 6,
+        'pig': 12,
+        'cow': 36,
+        'horse': 72,
+        'small_dog': 0, 
+        'big_dog': 0
+    }
+
+    # 2. Создаем панель
+    # Делаем темно-серый фон
+    panel = np.zeros((h, panel_w, 3), dtype=np.uint8)
+    panel[:] = (40, 40, 40) 
     
-    cv2.putText(canvas, name, (5, 15), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
-    return canvas
+    # Заголовок
+    cv2.putText(panel, "SCORE", (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2)
+    cv2.line(panel, (10, 50), (panel_w - 10, 50), (100, 100, 100), 2)
+    
+    # Выводим счет
+    y_offset = 90
+    total_score = 0
+    
+    # Сортируем для стабильности порядка
+    for name in sorted(counts.keys()):
+        count = counts[name]
+        
+        # Считаем очки
+        value = points_map.get(name, 0)
+        total_score += count * value
+        
+        # Текст (например PIG: 2)
+        text = f"{name.upper()}: {count}"
+        
+        # Цвет текста (можно сделать зависимым от типа животного)
+        color = (255, 255, 255)
+        if name == 'pig': color = (150, 150, 255) # Розоватый
+        elif name == 'sheep': color = (200, 255, 200) 
+        elif name == 'cow': color = (200, 200, 255) 
+        elif name == 'horse': color = (100, 100, 255)
+
+        cv2.putText(panel, text, (15, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
+        y_offset += 40
+        
+    # Итого
+    cv2.line(panel, (10, y_offset + 10), (panel_w - 10, y_offset + 10), (100, 100, 100), 1)
+    # Выводим сумму в кроликах
+    cv2.putText(panel, f"TOTAL: {total_score}", (15, y_offset + 50), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
+
+    # 3. Склеиваем панель и доску
+    combined = np.hstack([panel, image])
+    return combined
 
 # --- INITIALIZATION ---
 circle_classifier = TokenClassifier(ELEMENTS_PATH)
@@ -62,36 +137,26 @@ create_resizable_window("Main Stream", 1000, 700)
 tracked_boards = []
 board_id_counter = 0
 
-ref_imgs = circle_classifier.get_masked_references_images()
-if ref_imgs:
-    montage_refs = create_montage(ref_imgs, size=(120, 120), cols=5)
-    cv2.imshow("REFERENCES (MASKED)", montage_refs)
-
-hist_plots = []
-sorted_refs = sorted(circle_classifier.references.items()) 
-for name, data in sorted_refs:
-    if 'hist' in data:
-        plot = draw_hist_plot(data['hist'], name)
-        hist_plots.append(plot)
-if hist_plots:
-    montage_hists = create_montage(hist_plots, size=(150, 80), cols=4)
-    cv2.imshow("REFERENCES (HISTOGRAMS)", montage_hists)
-
 cv2.waitKey(1)
 
 # --- MAIN LOOP ---
 paused = False
+frame_count = 0 
 
-with VideoReadManager(VIDEO_PATH) as reader:
+with VideoReadManager(VIDEO_PATH) as reader, \
+     VideoWriteManager(OUTPUT_VIDEO_PATH, fps=30) as writer:
+    
     for frame in reader.read():
         if paused:
             key = cv2.waitKey(100)
             if key == ord(' '): paused = not paused
             if key == ord('q'): break
             continue
-
+        
+        frame_count += 1
         candidates = find_boards_geometry_hardcoded(frame)
 
+        # 1. Board Tracking
         for cand in candidates:
             matched = False
             cand_center = np.mean(cand.reshape(4, 2), axis=0)
@@ -111,63 +176,76 @@ with VideoReadManager(VIDEO_PATH) as reader:
                 tracked_boards.append(new_board)
                 board_id_counter += 1
         
-        debug_panels_list = []
-        
+        current_warps = []
+
+        # 2. Process Boards
         for board in tracked_boards:
             if not board.is_visible:
                 continue
             
             draw_board(frame, board, color=(0, 255, 0))
-
             warped = board.get_warped(frame)
             if warped is None: continue
-            
+
             detection_results = find_circles_hough(warped)
             board.logic.update_circles(detection_results)
             
             for circle in board.logic.circles:
                 if circle.is_visible:
-                    # 1. Classification Logic
-                    circle.frames_since_recognition += 1
-                    
-                    if circle.name is None or circle.frames_since_recognition > 30:
-                        if hasattr(circle, 'last_roi') and circle.last_roi is not None:
-                            pred = circle_classifier.predict(circle.last_roi, mask=circle.last_mask)
-                            
-                            if pred and pred != "Unknown": 
-                                circle.name = pred 
-                                circle.since_not_unknown = 0
-                            elif circle.since_not_unknown > 2:
-                                circle.name = "Unknown"
-                            else: 
-                                circle.since_not_unknown += 1
-                            
-                            circle.frames_since_recognition = 0
+                    # --- Logic Start ---
+                    if not hasattr(circle, 'pred_history'):
+                        circle.pred_history = deque(maxlen=HISTORY_LEN)
 
-                    if hasattr(circle, 'last_roi') and circle.last_roi is not None:
-                        panel = generate_debug_image(
-                            circle_classifier, 
-                            circle.last_roi, 
-                            circle.last_mask, 
-                            circle.name if circle.name else "Unknown",
-                            circle.id
-                        )
-                        if panel is not None:
-                            debug_panels_list.append(panel)
-                    
-                    draw_circle(warped, circle)
+                    if frame_count % SKIP_FRAMES == 0:
+                        raw_pred = "Unknown"
+                        if getattr(circle, 'lost_frames', 0) == 0:
+                            if hasattr(circle, 'last_roi') and circle.last_roi is not None:
+                                p = circle_classifier.predict(circle.last_roi, mask=circle.last_mask)
+                                if p: raw_pred = p
+                            
+                            if raw_pred != "Unknown":
+                                circle.pred_history.append(raw_pred)
 
-            # Show the top-down view
-            detection_results = find_circles_hough(warped)
-            board.logic.update_circles(detection_results)
-            board.logic.draw_notification(warped)
+                    if len(circle.pred_history) > 0:
+                        most_common, count = Counter(circle.pred_history).most_common(1)[0]
+                        old_name = circle.name
+                        
+                        if count >= CONFIDENCE_THRESH:
+                            circle.name = most_common
+                        
+                        if count >= PERSISTENCE_THRESH and most_common != "free": 
+                            circle.persistence_timer = PERSISTENCE_FRAMES
+                        
+                        board.logic.check_state_change(circle, old_name)
+                    # --- Logic End ---
+                    
+                    # Drawing
+                    display_color = (0, 255, 0)
+                    label_text = circle.name
+                    
+                    is_persisting = getattr(circle, 'persistence_timer', 0) > 0 and getattr(circle, 'lost_frames', 0) > 0
+                    
+                    if is_persisting:
+                        display_color = (255, 0, 255)
+                    elif circle.name is None:
+                         display_color = (128, 128, 128)
+                         label_text = "..."
+                    elif circle.name == "free":
+                        display_color = (0, 255, 255)
+                    
+                    draw_circle(warped, circle, label=label_text, color=display_color)
+
+            board.logic.draw_visual_events(warped)
+            
+            # --- ГЛАВНОЕ ИЗМЕНЕНИЕ: Добавляем панель статистики к варпу ---
+            warped_with_stats = draw_stats_panel(warped, board.logic.circles)
+            current_warps.append(warped_with_stats)
+            
             cv2.imshow(f"Board {board.id+1}", warped)
             
-        # 3. Global Debug View 
-        if debug_panels_list:
-            full_debug_view = create_montage(debug_panels_list, size=(160, 270), cols=8)
-            cv2.imshow("DEBUG: All Tokens Analysis", full_debug_view)
-            
+        # Запись видео
+        writer.write_composite(frame, current_warps)
+
         cv2.imshow("Main Stream", frame)
         
         key = cv2.waitKey(1)

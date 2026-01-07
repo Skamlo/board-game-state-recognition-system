@@ -58,18 +58,24 @@ class TokenClassifier:
                 print(f"Loaded reference: {name} ({len(kp)} features)")
     
     def predict(self, image_roi, mask=None):
+        # --- 1. БАЗОВЫЕ ПРОВЕРКИ ---
         if image_roi is None or image_roi.size == 0: return None
         
         if len(image_roi.shape) == 3:
             gray = cv2.cvtColor(image_roi, cv2.COLOR_BGR2GRAY)
         else: return None 
 
-        if mask is None:
-            h, w = gray.shape[:2]
-            mask = np.zeros((h, w), dtype="uint8")
-            cv2.circle(mask, (w // 2, h // 2), min(w, h) // 2 - 12, 255, -1)
+        h, w = gray.shape[:2]
+        cx, cy = w // 2, h // 2
+        
+        # Радиус рабочей области
+        r_outer = min(w, h) // 2 - 12
 
-        # SIFT
+        if mask is None:
+            mask = np.zeros((h, w), dtype="uint8")
+            cv2.circle(mask, (cx, cy), r_outer, 255, -1)
+
+        # --- 2. SIFT (ОПРЕДЕЛЕНИЕ ТИПА ЖИВОТНОГО) ---
         kp, des = self.orb.detectAndCompute(gray, mask=mask)
         if des is None or len(des) < 10: return None 
 
@@ -88,76 +94,94 @@ class TokenClassifier:
         
         base_name = best_sift_name.split('_')[0]
 
-        # Lab part
+        # --- 3. АНАЛИЗ ЦВЕТА (LAB) ---
         lab_image = cv2.cvtColor(image_roi, cv2.COLOR_BGR2Lab)
-        mean_lab = cv2.mean(lab_image, mask=mask)[:3]
-        L, a, b = mean_lab
         
+        # ==========================================
+        # ЛОГИКА ДЛЯ СВИНЬИ (PIG) - 8 ЗОН
+        # ==========================================
         if base_name == 'pig':
-            h, w = gray.shape[:2]
-            cx, cy = w // 2, h // 2
-            r_outer = min(w, h) // 2 - 12
             half_side = int(r_outer / np.sqrt(2))
-            line_top = cy - half_side
-            line_bot = cy + half_side
-            line_left = cx - half_side
-            line_right = cx + half_side
-            masks_8 = []
-            
-            m = np.zeros((h, w), dtype="uint8")
-            cv2.rectangle(m, (line_left, 0), (line_right, line_top), 255, -1)
-            masks_8.append(cv2.bitwise_and(m, mask))
-            m = np.zeros((h, w), dtype="uint8")
-            cv2.rectangle(m, (line_left, line_bot), (line_right, h), 255, -1)
-            masks_8.append(cv2.bitwise_and(m, mask))
-            m = np.zeros((h, w), dtype="uint8")
-            cv2.rectangle(m, (0, line_top), (line_left, line_bot), 255, -1)
-            masks_8.append(cv2.bitwise_and(m, mask))
-            m = np.zeros((h, w), dtype="uint8")
-            cv2.rectangle(m, (line_right, line_top), (w, line_bot), 255, -1)
-            masks_8.append(cv2.bitwise_and(m, mask))
-            m = np.zeros((h, w), dtype="uint8")
-            cv2.rectangle(m, (0, 0), (line_left, line_top), 255, -1)
-            masks_8.append(cv2.bitwise_and(m, mask))
-            m = np.zeros((h, w), dtype="uint8")
-            cv2.rectangle(m, (line_right, 0), (w, line_top), 255, -1)
-            masks_8.append(cv2.bitwise_and(m, mask))
-            m = np.zeros((h, w), dtype="uint8")
-            cv2.rectangle(m, (0, line_bot), (line_left, h), 255, -1)
-            masks_8.append(cv2.bitwise_and(m, mask))
-            m = np.zeros((h, w), dtype="uint8")
-            cv2.rectangle(m, (line_right, line_bot), (w, h), 255, -1)
-            masks_8.append(cv2.bitwise_and(m, mask))
+            lines = {
+                'top': cy - half_side, 'bot': cy + half_side,
+                'left': cx - half_side, 'right': cx + half_side
+            }
 
-            blue_zones = 0            
-            for zone_mask in masks_8:
-                if cv2.countNonZero(zone_mask) < 20: continue
+            zones_rects = [
+                ((lines['left'], 0), (lines['right'], lines['top'])),       # N
+                ((lines['left'], lines['bot']), (lines['right'], h)),       # S
+                ((0, lines['top']), (lines['left'], lines['bot'])),         # W
+                ((lines['right'], lines['top']), (w, lines['bot'])),        # E
+                ((0, 0), (lines['left'], lines['top'])),                    # NW
+                ((lines['right'], 0), (w, lines['top'])),                   # NE
+                ((0, lines['bot']), (lines['left'], h)),                    # SW
+                ((lines['right'], lines['bot']), (w, h))                    # SE
+            ]
+
+            blue_zones = 0
+            for (pt1, pt2) in zones_rects:
+                m_zone = np.zeros((h, w), dtype="uint8")
+                cv2.rectangle(m_zone, pt1, pt2, 255, -1)
+                final_mask = cv2.bitwise_and(m_zone, mask)
                 
-                mean_val = cv2.mean(lab_image, mask=zone_mask)
+                if cv2.countNonZero(final_mask) < 20: continue
+                
+                mean_val = cv2.mean(lab_image, mask=final_mask)
                 b = mean_val[2]
-                if b < 120:
-                    blue_zones += 1
-            if blue_zones >= 5:
-                return "pig_blue"
-            if blue_zones >= 1:
-                return "pig"
-            return "pig_red"
-        
+                
+                if b < 120: blue_zones += 1
 
+            # --- РЕШЕНИЕ (Возвращаем free или pig) ---
+            
+            # pig_blue (Синяя) -> Free
+            if blue_zones >= 5: return "free"
+            
+            # pig (Обычная, есть небо) -> Занято
+            if blue_zones >= 1: return "pig"
+            
+            # pig_red (Сепия, нет неба) -> Free
+            return "free"
+
+        # ==========================================
+        # ЛОГИКА ДЛЯ ЛОШАДИ (HORSE)
+        # ==========================================
         elif base_name == 'horse':
-            if b < 120: 
-                return "horse_blue"
+            mean_lab = cv2.mean(lab_image, mask=mask)[:3]
+            b = mean_lab[2]
+            
+            # horse_blue -> Free
+            if b < 125: return "free"
+            
+            # Обычная лошадь
             return "horse"
-
+        elif base_name == 'cow':
+            mean_lab = cv2.mean(lab_image, mask=mask)[:3]
+            a, b = mean_lab[1], mean_lab[2]
+            
+            # _blue (Синий вариант) -> Free
+            if b < 122: return "free"
+            
+            # _red (Красный вариант, a >= 127) -> Free
+            if a >= 127: return "free"
+            
+            # Обычный вариант (кролик, овца, корова)
+            return base_name
+        
+        # ==========================================
+        # ЛОГИКА ДЛЯ ОСТАЛЬНЫХ (С ТРАВОЙ)
+        # ==========================================
         else:
-            if b < 118:
-                candidate = f"{base_name}_blue"
-                return candidate if candidate in self.references else base_name
-            if a >= 127:
-                candidate = f"{base_name}_red"
-                return candidate if candidate in self.references else base_name
-            else:
-                return base_name   
+            mean_lab = cv2.mean(lab_image, mask=mask)[:3]
+            a, b = mean_lab[1], mean_lab[2]
+            
+            # _blue (Синий вариант) -> Free
+            if b < 118: return "free"
+            
+            # _red (Красный вариант, a >= 127) -> Free
+            if a >= 127: return "free"
+            
+            # Обычный вариант (кролик, овца, корова)
+            return base_name  
     
 
     def get_masked_references_images(self):
