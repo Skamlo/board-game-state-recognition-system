@@ -1,14 +1,14 @@
 import cv2
 
-MIN_SIDE_LENGTH = 600
-MAX_SIDE_LENGTH = 800
+MIN_SIDE_LENGTH = 500
+MAX_SIDE_LENGTH = 1000
 
 
 def find_boards_geometry(frame):
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     blurred = cv2.GaussianBlur(gray, (5, 5), 0)
     edged = cv2.Canny(blurred, 30, 150)
-
+    cv2.imshow("DEBUG: Canny Edges", edged)
     contours, _ = cv2.findContours(edged, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     
     valid_boards = []

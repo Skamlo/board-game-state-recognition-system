@@ -91,10 +91,7 @@ class VideoWriteManager(VideoManagerInterface):
         if not self.is_connection_open:
             self.open_connection()
 
-        if hasattr(self, 'color_system') and self.color_system == "RGB":
-             self.connection.write(frame[:, :, ::-1])
-        else:
-             self.connection.write(frame)
+        self.connection.write(frame)
 
     def write(self, frame):
         self.write_frame(frame)

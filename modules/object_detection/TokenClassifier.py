@@ -5,8 +5,8 @@ import numpy as np
 
 class TokenClassifier:
     def __init__(self, references_path):
-        self.orb = cv2.SIFT_create()  #cv2.ORB_create(nfeatures=500)
-        self.matcher = cv2.BFMatcher(cv2.NORM_L2, crossCheck=False)  #cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
+        self.orb = cv2.SIFT_create()  
+        self.matcher = cv2.BFMatcher(cv2.NORM_L2, crossCheck=False)  
         
         self.references = {} 
         
@@ -18,11 +18,8 @@ class TokenClassifier:
         if cv2.countNonZero(mask) > 0:
             cv2.normalize(hist, hist, alpha=0, beta=1, norm_type=cv2.NORM_MINMAX)
         return hist.flatten()
+    
     def _calc_average_color(self, image, mask):
-        """
-        Recounts Lab.
-        returns numpy array [L, a, b].
-        """
         lab_image = cv2.cvtColor(image, cv2.COLOR_BGR2Lab)
         mean_val = cv2.mean(lab_image, mask=mask)[:3]
         
@@ -58,7 +55,6 @@ class TokenClassifier:
                 print(f"Loaded reference: {name} ({len(kp)} features)")
     
     def predict(self, image_roi, mask=None):
-        # --- 1. БАЗОВЫЕ ПРОВЕРКИ ---
         if image_roi is None or image_roi.size == 0: return None
         
         if len(image_roi.shape) == 3:
@@ -68,14 +64,12 @@ class TokenClassifier:
         h, w = gray.shape[:2]
         cx, cy = w // 2, h // 2
         
-        # Радиус рабочей области
         r_outer = min(w, h) // 2 - 12
 
         if mask is None:
             mask = np.zeros((h, w), dtype="uint8")
             cv2.circle(mask, (cx, cy), r_outer, 255, -1)
 
-        # --- 2. SIFT (ОПРЕДЕЛЕНИЕ ТИПА ЖИВОТНОГО) ---
         kp, des = self.orb.detectAndCompute(gray, mask=mask)
         if des is None or len(des) < 10: return None 
 
@@ -94,12 +88,8 @@ class TokenClassifier:
         
         base_name = best_sift_name.split('_')[0]
 
-        # --- 3. АНАЛИЗ ЦВЕТА (LAB) ---
         lab_image = cv2.cvtColor(image_roi, cv2.COLOR_BGR2Lab)
         
-        # ==========================================
-        # ЛОГИКА ДЛЯ СВИНЬИ (PIG) - 8 ЗОН
-        # ==========================================
         if base_name == 'pig':
             half_side = int(r_outer / np.sqrt(2))
             lines = {
@@ -108,14 +98,14 @@ class TokenClassifier:
             }
 
             zones_rects = [
-                ((lines['left'], 0), (lines['right'], lines['top'])),       # N
-                ((lines['left'], lines['bot']), (lines['right'], h)),       # S
-                ((0, lines['top']), (lines['left'], lines['bot'])),         # W
-                ((lines['right'], lines['top']), (w, lines['bot'])),        # E
-                ((0, 0), (lines['left'], lines['top'])),                    # NW
-                ((lines['right'], 0), (w, lines['top'])),                   # NE
-                ((0, lines['bot']), (lines['left'], h)),                    # SW
-                ((lines['right'], lines['bot']), (w, h))                    # SE
+                ((lines['left'], 0), (lines['right'], lines['top'])),       
+                ((lines['left'], lines['bot']), (lines['right'], h)),       
+                ((0, lines['top']), (lines['left'], lines['bot'])),         
+                ((lines['right'], lines['top']), (w, lines['bot'])),        
+                ((0, 0), (lines['left'], lines['top'])),                    
+                ((lines['right'], 0), (w, lines['top'])),                   
+                ((0, lines['bot']), (lines['left'], h)),                    
+                ((lines['right'], lines['bot']), (w, h))                    
             ]
 
             blue_zones = 0
@@ -129,59 +119,40 @@ class TokenClassifier:
                 mean_val = cv2.mean(lab_image, mask=final_mask)
                 b = mean_val[2]
                 
-                if b < 120: blue_zones += 1
-
-            # --- РЕШЕНИЕ (Возвращаем free или pig) ---
+                if b < 122: blue_zones += 1
             
-            # pig_blue (Синяя) -> Free
-            if blue_zones >= 5: return "free"
+            if blue_zones >= 3: return "free"
             
-            # pig (Обычная, есть небо) -> Занято
             if blue_zones >= 1: return "pig"
             
-            # pig_red (Сепия, нет неба) -> Free
             return "free"
 
-        # ==========================================
-        # ЛОГИКА ДЛЯ ЛОШАДИ (HORSE)
-        # ==========================================
         elif base_name == 'horse':
             mean_lab = cv2.mean(lab_image, mask=mask)[:3]
             b = mean_lab[2]
             
-            # horse_blue -> Free
-            if b < 125: return "free"
+            if b < 129: return "free"
             
-            # Обычная лошадь
             return "horse"
+        
         elif base_name == 'cow':
             mean_lab = cv2.mean(lab_image, mask=mask)[:3]
             a, b = mean_lab[1], mean_lab[2]
             
-            # _blue (Синий вариант) -> Free
-            if b < 122: return "free"
+            if b < 120: return "free"
             
-            # _red (Красный вариант, a >= 127) -> Free
             if a >= 127: return "free"
             
-            # Обычный вариант (кролик, овца, корова)
             return base_name
         
-        # ==========================================
-        # ЛОГИКА ДЛЯ ОСТАЛЬНЫХ (С ТРАВОЙ)
-        # ==========================================
         else:
             mean_lab = cv2.mean(lab_image, mask=mask)[:3]
             a, b = mean_lab[1], mean_lab[2]
             
-            # _blue (Синий вариант) -> Free
-            if b < 118: return "free"
+            if b < 125: return "free"
             
-            # _red (Красный вариант, a >= 127) -> Free
             if a >= 127: return "free"
-            
-            # Обычный вариант (кролик, овца, корова)
-            return base_name  
+            return base_name    
     
 
     def get_masked_references_images(self):
